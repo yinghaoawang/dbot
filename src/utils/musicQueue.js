@@ -9,6 +9,7 @@ const {
 const youtubedl = require('yt-dlp-exec');
 const { spawn } = require('node:child_process');
 const ffmpegPath = require('ffmpeg-static');
+const volumeStore = require('./volumeStore');
 
 /**
  * @typedef {Object} Song
@@ -24,9 +25,12 @@ const ffmpegPath = require('ffmpeg-static');
  * @property {Song[]} songs
  * @property {import('discord.js').TextBasedChannel} textChannel
  * @property {boolean} playing
+ * @property {number} volume
  * @property {import('child_process').ChildProcess | null} currentProcess
  * @property {import('child_process').ChildProcess | null} currentFfmpeg
  */
+
+const DEFAULT_VOLUME = 1;
 
 /** @type {Map<string, GuildQueue>} */
 const queues = new Map();
@@ -38,7 +42,16 @@ function getQueue(guildId) {
 function createQueue(guildId, connection, textChannel) {
   const player = createAudioPlayer();
   /** @type {GuildQueue} */
-  const queue = { connection, player, songs: [], textChannel, playing: false, currentProcess: null, currentFfmpeg: null };
+  const queue = {
+    connection,
+    player,
+    songs: [],
+    textChannel,
+    playing: false,
+    volume: volumeStore.get(guildId) ?? DEFAULT_VOLUME,
+    currentProcess: null,
+    currentFfmpeg: null,
+  };
   queues.set(guildId, queue);
 
   connection.subscribe(player);
@@ -144,7 +157,7 @@ async function playNext(guildId) {
       inputType: StreamType.Raw,
       inlineVolume: true,
     });
-    resource.volume?.setVolume(1);
+    resource.volume?.setVolume(queue.volume);
     queue.player.play(resource);
     queue.playing = true;
     queue.textChannel?.send(`🎶 Now playing: **${nextSong.title}**`).catch(() => {});
@@ -169,10 +182,33 @@ function destroyQueue(guildId) {
   queues.delete(guildId);
 }
 
+function setVolume(guildId, volume) {
+  const clamped = Math.min(Math.max(volume, 0), 2);
+  volumeStore.set(guildId, clamped);
+
+  const queue = getQueue(guildId);
+  if (queue) {
+    queue.volume = clamped;
+    const resource = queue.player.state.resource;
+    resource?.volume?.setVolume(clamped);
+  }
+
+  return clamped;
+}
+
+function getPendingOrCurrentVolume(guildId) {
+  const queue = getQueue(guildId);
+  if (queue) return queue.volume;
+  return volumeStore.get(guildId) ?? DEFAULT_VOLUME;
+}
+
 module.exports = {
   queues,
   getQueue,
   createQueue,
   playNext,
   destroyQueue,
+  setVolume,
+  getPendingOrCurrentVolume,
+  DEFAULT_VOLUME,
 };
