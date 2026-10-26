@@ -1,7 +1,15 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { joinVoiceChannel } = require('@discordjs/voice');
-const play = require('play-dl');
+const yts = require('yt-search');
 const { getQueue, createQueue, playNext } = require('../utils/musicQueue');
+
+const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i;
+
+function extractVideoId(url) {
+  const match = url.match(/(?:v=|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -41,16 +49,22 @@ module.exports = {
     let songInfo;
 
     try {
-      if (play.yt_validate(query) === 'video') {
-        const info = await play.video_info(query);
-        songInfo = { title: info.video_details.title, url: info.video_details.url };
+      if (YOUTUBE_URL_REGEX.test(query)) {
+        const videoId = extractVideoId(query);
+        if (videoId) {
+          const video = await yts({ videoId });
+          songInfo = { title: video?.title ?? query, url: query };
+        } else {
+          songInfo = { title: query, url: query };
+        }
       } else {
-        const results = await play.search(query, { limit: 1, source: { youtube: 'video' } });
-        if (!results.length) {
+        const result = await yts(query);
+        const video = result.videos?.[0];
+        if (!video) {
           await interaction.editReply('❌ No results found for that search.');
           return;
         }
-        songInfo = { title: results[0].title, url: results[0].url };
+        songInfo = { title: video.title, url: video.url };
       }
     } catch (err) {
       console.error('Search/lookup failed:', err);

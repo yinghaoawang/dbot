@@ -1,5 +1,4 @@
 const {
-  joinVoiceChannel,
   createAudioPlayer,
   createAudioResource,
   AudioPlayerStatus,
@@ -7,7 +6,9 @@ const {
   entersState,
   StreamType,
 } = require('@discordjs/voice');
-const play = require('play-dl');
+const youtubedl = require('yt-dlp-exec');
+const { spawn } = require('node:child_process');
+const ffmpegPath = require('ffmpeg-static');
 
 /**
  * @typedef {Object} Song
@@ -23,6 +24,8 @@ const play = require('play-dl');
  * @property {Song[]} songs
  * @property {import('discord.js').TextBasedChannel} textChannel
  * @property {boolean} playing
+ * @property {import('child_process').ChildProcess | null} currentProcess
+ * @property {import('child_process').ChildProcess | null} currentFfmpeg
  */
 
 /** @type {Map<string, GuildQueue>} */
@@ -35,18 +38,20 @@ function getQueue(guildId) {
 function createQueue(guildId, connection, textChannel) {
   const player = createAudioPlayer();
   /** @type {GuildQueue} */
-  const queue = { connection, player, songs: [], textChannel, playing: false };
+  const queue = { connection, player, songs: [], textChannel, playing: false, currentProcess: null, currentFfmpeg: null };
   queues.set(guildId, queue);
 
   connection.subscribe(player);
 
   player.on(AudioPlayerStatus.Idle, () => {
+    killCurrentProcess(queue);
     queue.songs.shift();
     playNext(guildId);
   });
 
   player.on('error', (error) => {
     console.error(`Audio player error in guild ${guildId}:`, error);
+    killCurrentProcess(queue);
     queue.songs.shift();
     playNext(guildId);
   });
@@ -65,6 +70,18 @@ function createQueue(guildId, connection, textChannel) {
   return queue;
 }
 
+function killCurrentProcess(queue) {
+  if (queue.currentProcess && !queue.currentProcess.killed) {
+    queue.currentProcess.kill();
+  }
+  queue.currentProcess = null;
+
+  if (queue.currentFfmpeg && !queue.currentFfmpeg.killed) {
+    queue.currentFfmpeg.kill();
+  }
+  queue.currentFfmpeg = null;
+}
+
 async function playNext(guildId) {
   const queue = getQueue(guildId);
   if (!queue) return;
@@ -76,9 +93,55 @@ async function playNext(guildId) {
   }
 
   try {
-    const stream = await play.stream(nextSong.url);
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type ?? StreamType.Arbitrary,
+    const subprocess = youtubedl.exec(
+      nextSong.url,
+      {
+        output: '-',
+        format: 'bestaudio/best',
+        noPlaylist: true,
+        noWarnings: true,
+        quiet: true,
+      },
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    queue.currentProcess = subprocess;
+
+    subprocess.catch((err) => {
+      if (!err?.isCanceled && !err?.killed) {
+        console.error('yt-dlp process error:', err?.shortMessage ?? err);
+      }
+    });
+    subprocess.stderr?.on('data', () => {});
+
+    const ffmpeg = spawn(
+      ffmpegPath,
+      [
+        '-analyzeduration', '0',
+        '-loglevel', 'error',
+        '-i', 'pipe:0',
+        '-f', 's16le',
+        '-ar', '48000',
+        '-ac', '2',
+        'pipe:1',
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+
+    queue.currentFfmpeg = ffmpeg;
+
+    subprocess.stdout.pipe(ffmpeg.stdin);
+    subprocess.stdout.on('error', () => {});
+    ffmpeg.stdin.on('error', () => {});
+    ffmpeg.stderr.on('data', (data) => {
+      console.error('ffmpeg:', data.toString());
+    });
+    ffmpeg.on('error', (err) => {
+      console.error('ffmpeg process error:', err);
+    });
+
+    const resource = createAudioResource(ffmpeg.stdout, {
+      inputType: StreamType.Raw,
       inlineVolume: true,
     });
     resource.volume?.setVolume(1);
@@ -97,6 +160,7 @@ function destroyQueue(guildId) {
   const queue = getQueue(guildId);
   if (!queue) return;
   try {
+    killCurrentProcess(queue);
     queue.player.stop();
     queue.connection.destroy();
   } catch {
