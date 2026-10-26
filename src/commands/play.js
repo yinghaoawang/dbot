@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel } = require('@discordjs/voice');
+const { joinVoiceChannel, entersState, VoiceConnectionStatus } = require('@discordjs/voice');
 const yts = require('yt-search');
 const { getQueue, createQueue, playNext } = require('../utils/musicQueue');
 
@@ -87,6 +87,15 @@ module.exports = {
         adapterCreator: interaction.guild.voiceAdapterCreator,
         selfDeaf: true,
       });
+
+      try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      } catch (err) {
+        connection.destroy();
+        await interaction.editReply('❌ Failed to join the voice channel in time.');
+        return;
+      }
+
       queue = createQueue(interaction.guildId, connection, interaction.channel);
     }
 
