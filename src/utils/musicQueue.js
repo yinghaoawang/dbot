@@ -37,6 +37,16 @@ const { OverlayMixer } = require('./overlayMixer');
 
 const DEFAULT_VOLUME = 1;
 
+// Volume levels are shown to users as 0-200% where 100% (the default) is a
+// comfortable 40% actual gain and 200% is full 200% gain. Linear in between.
+const BASE_GAIN = 0.4;
+const MAX_GAIN = 2;
+
+function levelToGain(level) {
+  if (level <= 1) return level * BASE_GAIN;
+  return BASE_GAIN + (level - 1) * (MAX_GAIN - BASE_GAIN);
+}
+
 /** @type {Map<string, GuildQueue>} */
 const queues = new Map();
 
@@ -171,7 +181,7 @@ async function playNext(guildId) {
       inputType: StreamType.Raw,
       inlineVolume: true,
     });
-    resource.volume?.setVolume(queue.volume);
+    resource.volume?.setVolume(levelToGain(queue.volume));
     queue.player.play(resource);
     queue.playing = true;
     queue.textChannel?.send(`🎶 Now playing: **${nextSong.title}**`).catch(() => {});
@@ -204,7 +214,7 @@ function setVolume(guildId, volume) {
   if (queue) {
     queue.volume = clamped;
     const resource = queue.player.state.resource;
-    resource?.volume?.setVolume(clamped);
+    resource?.volume?.setVolume(levelToGain(clamped));
   }
 
   return clamped;
