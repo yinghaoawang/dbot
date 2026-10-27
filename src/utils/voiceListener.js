@@ -7,6 +7,7 @@ const { pcmToWav } = require('./wav');
 const { transcribeWav } = require('./transcriber');
 const { runVoiceCommand } = require('./voiceCommands');
 const { findWakeWord } = require('./wakeWord');
+const { logTranscript } = require('./transcriptLog');
 
 const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
 const SILENCE_DURATION_MS = 1_000;
@@ -135,6 +136,7 @@ async function handleUtterance(guildId, state, userId) {
   }
 
   console.log(`[voice:${guildId}] ${userId} heard: "${transcript}"`);
+  logTranscript({ guild: state.guild, voiceChannel: state.voiceChannel, userId, text: transcript });
   if (process.env.VOICE_DEBUG) {
     state.textChannel?.send(`🗣️ Heard: "${transcript}"`).catch(() => {});
   }
