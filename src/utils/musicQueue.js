@@ -9,9 +9,11 @@ const {
 } = require('@discordjs/voice');
 const youtubedl = require('yt-dlp-exec');
 const { spawn } = require('node:child_process');
+const { Readable } = require('node:stream');
 const ffmpegPath = require('ffmpeg-static');
 const volumeStore = require('./volumeStore');
 const tts = require('./tts');
+const { OverlayMixer } = require('./overlayMixer');
 
 /**
  * @typedef {Object} Song
@@ -30,6 +32,7 @@ const tts = require('./tts');
  * @property {number} volume
  * @property {import('child_process').ChildProcess | null} currentProcess
  * @property {import('child_process').ChildProcess | null} currentFfmpeg
+ * @property {OverlayMixer | null} mixer
  */
 
 const DEFAULT_VOLUME = 1;
@@ -53,6 +56,7 @@ function createQueue(guildId, connection, textChannel) {
     volume: volumeStore.get(guildId) ?? DEFAULT_VOLUME,
     currentProcess: null,
     currentFfmpeg: null,
+    mixer: null,
   };
   queues.set(guildId, queue);
 
@@ -95,6 +99,7 @@ function killCurrentProcess(queue) {
     queue.currentFfmpeg.kill();
   }
   queue.currentFfmpeg = null;
+  queue.mixer = null;
 }
 
 async function playNext(guildId) {
@@ -155,7 +160,14 @@ async function playNext(guildId) {
       console.error('ffmpeg process error:', err);
     });
 
-    const resource = createAudioResource(ffmpeg.stdout, {
+    // The mixer lets announcements (TTS) play over the music without pausing it.
+    const mixer = new OverlayMixer();
+    ffmpeg.stdout.pipe(mixer);
+    ffmpeg.stdout.on('error', () => {});
+    mixer.on('error', () => {});
+    queue.mixer = mixer;
+
+    const resource = createAudioResource(mixer, {
       inputType: StreamType.Raw,
       inlineVolume: true,
     });
@@ -248,19 +260,25 @@ async function enqueueSong(guild, voiceChannel, textChannel, song) {
 }
 
 /**
- * Speaks `text` in the guild's voice channel using TTS. Music is paused while
- * the announcement plays and resumed afterwards. Requires an existing queue
- * (voice connection).
+ * Speaks `text` in the guild's voice channel using TTS. If music is playing the
+ * speech is mixed on top of it (music ducked, never paused); otherwise it plays
+ * on its own. Requires an existing queue (voice connection).
  */
 async function speak(guildId, text) {
   const queue = getQueue(guildId);
   if (!queue) throw new Error('Not connected to a voice channel.');
 
-  const mp3Path = await tts.synthesize(text);
-  const ffmpeg = tts.decodeToPcm(mp3Path, 3); // boost volume by 3x
-  const announcer = createAudioPlayer();
-  const musicWasPlaying = queue.player.state.status === AudioPlayerStatus.Playing;
+  const pcm = await tts.decodeToBuffer(await tts.synthesize(text), 3); // boost volume by 3x
 
+  // Re-check after the awaits: the song/queue may have changed meanwhile.
+  if (getQueue(guildId) !== queue) return;
+  if (queue.mixer && queue.player.state.status === AudioPlayerStatus.Playing) {
+    await queue.mixer.playOverlay(pcm);
+    return;
+  }
+
+  // Nothing playing (or paused): use a temporary player for the announcement.
+  const announcer = createAudioPlayer();
   const finished = new Promise((resolve) => {
     announcer.on('stateChange', (_old, next) => {
       if (next.status === AudioPlayerStatus.Idle) resolve();
@@ -271,19 +289,14 @@ async function speak(guildId, text) {
     });
   });
 
-  if (musicWasPlaying) queue.player.pause();
   queue.connection.subscribe(announcer);
-  announcer.play(createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw }));
+  announcer.play(createAudioResource(Readable.from([pcm]), { inputType: StreamType.Raw }));
 
   try {
     await finished;
   } finally {
-    ffmpeg.kill();
     // The queue may have been destroyed (e.g. "stop") while speaking.
-    if (getQueue(guildId) === queue) {
-      queue.connection.subscribe(queue.player);
-      if (musicWasPlaying) queue.player.unpause();
-    }
+    if (getQueue(guildId) === queue) queue.connection.subscribe(queue.player);
   }
 }
 

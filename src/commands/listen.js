@@ -2,6 +2,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const { ensureQueue } = require('../utils/musicQueue');
 const { startListening, stopListening, isListening } = require('../utils/voiceListener');
 const { getVoiceExamples } = require('../utils/voiceCommands');
+const { getDiddyChannel } = require('../utils/diddyChannel');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -53,7 +54,7 @@ module.exports = {
 
     let queue;
     try {
-      queue = await ensureQueue(interaction.guild, voiceChannel, interaction.channel);
+      queue = await ensureQueue(interaction.guild, voiceChannel, getDiddyChannel(interaction.guild));
     } catch (err) {
       await interaction.editReply(`❌ ${err.message}`);
       return;
@@ -66,7 +67,13 @@ module.exports = {
       console.error('Failed to undeafen bot:', err);
     }
 
-    startListening(interaction.guildId, queue.connection, voiceChannel, interaction.channel, interaction.guild);
+    startListening(
+      interaction.guildId,
+      queue.connection,
+      voiceChannel,
+      getDiddyChannel(interaction.guild),
+      interaction.guild
+    );
 
     const examples = getVoiceExamples().map((e) => `**${e}**`).join(', ');
     await interaction.editReply(

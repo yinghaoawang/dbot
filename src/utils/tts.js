@@ -46,24 +46,35 @@ async function synthesize(text) {
   return mp3Path;
 }
 
-/** Starts an ffmpeg process decoding the audio file to raw 48kHz stereo s16le PCM, with volume boost. */
-function decodeToPcm(filePath, volumeGain = 2) {
-  const ffmpeg = spawn(
-    ffmpegPath,
-    [
-      '-loglevel', 'error',
-      '-i', filePath,
-      '-af', `volume=${volumeGain}`,
-      '-f', 's16le',
-      '-ar', '48000',
-      '-ac', '2',
-      'pipe:1',
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
-  ffmpeg.stderr.on('data', (data) => console.error('ffmpeg (tts):', data.toString()));
-  ffmpeg.on('error', (err) => console.error('ffmpeg (tts) process error:', err));
-  return ffmpeg;
+/** Decodes the audio file to a Buffer of raw 48kHz stereo s16le PCM, with volume boost. */
+function decodeToBuffer(filePath, volumeGain = 1) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn(
+      ffmpegPath,
+      [
+        '-loglevel', 'error',
+        '-i', filePath,
+        '-af', `volume=${volumeGain}`,
+        '-f', 's16le',
+        '-ar', '48000',
+        '-ac', '2',
+        'pipe:1',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const chunks = [];
+    let stderr = '';
+    ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
+    ffmpeg.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    ffmpeg.on('error', reject);
+    ffmpeg.on('close', (code) => {
+      if (code === 0) resolve(Buffer.concat(chunks));
+      else reject(new Error(`ffmpeg exited with code ${code}: ${stderr}`));
+    });
+  });
 }
 
-module.exports = { synthesize, decodeToPcm };
+module.exports = { synthesize, decodeToBuffer };

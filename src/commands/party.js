@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { ensureQueue, speak } = require('../utils/musicQueue');
+const { getDiddyChannel } = require('../utils/diddyChannel');
 
 const RESPONSE = 'Hell yeah!';
 
@@ -20,7 +21,7 @@ module.exports = {
 
     await interaction.deferReply();
     try {
-      await ensureQueue(interaction.guild, voiceChannel, interaction.channel);
+      await ensureQueue(interaction.guild, voiceChannel, getDiddyChannel(interaction.guild));
       await interaction.editReply('🎉 Hell yeah!');
       await speak(interaction.guildId, RESPONSE);
     } catch (err) {

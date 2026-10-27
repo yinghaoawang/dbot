@@ -4,6 +4,7 @@ const path = require('node:path');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
 const { startListening, isListening } = require('./utils/voiceListener');
 const { ensureQueue } = require('./utils/musicQueue');
+const { getDiddyChannel } = require('./utils/diddyChannel');
 const transcriber = require('./utils/transcriber');
 
 const client = new Client({
@@ -36,7 +37,7 @@ client.once('ready', async () => {
     try {
       const guild = await client.guilds.fetch(process.env.GUILD_ID);
       const voiceChannel = guild.channels.cache.get(process.env.VOICE_CHANNEL_ID);
-      const textChannel = guild.systemChannel || Array.from(guild.channels.cache.values()).find((ch) => ch.isTextBased());
+      const textChannel = getDiddyChannel(guild);
 
       if (voiceChannel && voiceChannel.isVoiceBased() && !isListening(guild.id)) {
         const queue = await ensureQueue(guild, voiceChannel, textChannel);

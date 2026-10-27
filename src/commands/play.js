@@ -1,6 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { resolveSong } = require('../utils/songResolver');
 const { getQueue, enqueueSong } = require('../utils/musicQueue');
+const { getDiddyChannel } = require('../utils/diddyChannel');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -55,7 +56,7 @@ module.exports = {
 
     let started;
     try {
-      ({ started } = await enqueueSong(interaction.guild, voiceChannel, interaction.channel, song));
+      ({ started } = await enqueueSong(interaction.guild, voiceChannel, getDiddyChannel(interaction.guild), song));
     } catch (err) {
       await interaction.editReply(`❌ ${err.message}`);
       return;
