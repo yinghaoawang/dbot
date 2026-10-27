@@ -1,15 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { joinVoiceChannel, entersState, VoiceConnectionStatus } = require('@discordjs/voice');
-const yts = require('yt-search');
-const { getQueue, createQueue, playNext } = require('../utils/musicQueue');
-
-const YOUTUBE_URL_REGEX = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i;
-
-function extractVideoId(url) {
-  const match = url.match(/(?:v=|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
-  return match ? match[1] : null;
-}
-
+const { resolveSong } = require('../utils/songResolver');
+const { getQueue, enqueueSong } = require('../utils/musicQueue');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -49,23 +40,7 @@ module.exports = {
     let songInfo;
 
     try {
-      if (YOUTUBE_URL_REGEX.test(query)) {
-        const videoId = extractVideoId(query);
-        if (videoId) {
-          const video = await yts({ videoId });
-          songInfo = { title: video?.title ?? query, url: query };
-        } else {
-          songInfo = { title: query, url: query };
-        }
-      } else {
-        const result = await yts(query);
-        const video = result.videos?.[0];
-        if (!video) {
-          await interaction.editReply('❌ No results found for that search.');
-          return;
-        }
-        songInfo = { title: video.title, url: video.url };
-      }
+      songInfo = await resolveSong(query);
     } catch (err) {
       console.error('Search/lookup failed:', err);
       await interaction.editReply('❌ Failed to find that song.');
@@ -78,33 +53,18 @@ module.exports = {
       requestedBy: interaction.user.tag,
     };
 
-    let queue = getQueue(interaction.guildId);
-
-    if (!queue) {
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: interaction.guildId,
-        adapterCreator: interaction.guild.voiceAdapterCreator,
-        selfDeaf: true,
-      });
-
-      try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
-      } catch (err) {
-        connection.destroy();
-        await interaction.editReply('❌ Failed to join the voice channel in time.');
-        return;
-      }
-
-      queue = createQueue(interaction.guildId, connection, interaction.channel);
+    let started;
+    try {
+      ({ started } = await enqueueSong(interaction.guild, voiceChannel, interaction.channel, song));
+    } catch (err) {
+      await interaction.editReply(`❌ ${err.message}`);
+      return;
     }
 
-    queue.songs.push(song);
-
-    if (!queue.playing) {
+    if (started) {
       await interaction.editReply(`🎶 Loading: **${song.title}**`);
-      playNext(interaction.guildId);
     } else {
+      const queue = getQueue(interaction.guildId);
       await interaction.editReply(`✅ Added to queue: **${song.title}** (position ${queue.songs.length})`);
     }
   },

@@ -5,6 +5,7 @@ const {
   VoiceConnectionStatus,
   entersState,
   StreamType,
+  joinVoiceChannel,
 } = require('@discordjs/voice');
 const youtubedl = require('yt-dlp-exec');
 const { spawn } = require('node:child_process');
@@ -202,6 +203,49 @@ function getPendingOrCurrentVolume(guildId) {
   return volumeStore.get(guildId) ?? DEFAULT_VOLUME;
 }
 
+/**
+ * Ensures a voice connection + queue exists for the guild, joining the given
+ * voice channel if necessary. Returns the existing or newly created queue.
+ */
+async function ensureQueue(guild, voiceChannel, textChannel) {
+  let queue = getQueue(guild.id);
+  if (queue) return queue;
+
+  const connection = joinVoiceChannel({
+    channelId: voiceChannel.id,
+    guildId: guild.id,
+    adapterCreator: guild.voiceAdapterCreator,
+    selfDeaf: true,
+  });
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+  } catch (err) {
+    connection.destroy();
+    throw new Error('Failed to join the voice channel in time.');
+  }
+
+  queue = createQueue(guild.id, connection, textChannel);
+  return queue;
+}
+
+/**
+ * Adds a resolved song ({ title, url, requestedBy }) to the guild's queue,
+ * joining the voice channel if needed, and starts playback if idle.
+ * Returns { queue, started } where started indicates playback began immediately.
+ */
+async function enqueueSong(guild, voiceChannel, textChannel, song) {
+  const queue = await ensureQueue(guild, voiceChannel, textChannel);
+  queue.songs.push(song);
+
+  const started = !queue.playing;
+  if (started) {
+    playNext(guild.id);
+  }
+
+  return { queue, started };
+}
+
 module.exports = {
   queues,
   getQueue,
@@ -210,5 +254,7 @@ module.exports = {
   destroyQueue,
   setVolume,
   getPendingOrCurrentVolume,
+  ensureQueue,
+  enqueueSong,
   DEFAULT_VOLUME,
 };

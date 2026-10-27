@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getQueue, destroyQueue } = require('../utils/musicQueue');
+const { stopListening } = require('../utils/voiceListener');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,6 +15,7 @@ module.exports = {
     }
 
     queue.songs = [];
+    stopListening(interaction.guildId);
     destroyQueue(interaction.guildId);
     await interaction.reply('⏹️ Stopped playback and left the voice channel.');
   },

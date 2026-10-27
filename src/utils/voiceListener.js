@@ -1,0 +1,251 @@
+const { EndBehaviorType } = require('@discordjs/voice');
+const prism = require('prism-media');
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { pcmToWav } = require('./wav');
+const { resolveSong } = require('./songResolver');
+const { getQueue, enqueueSong, destroyQueue } = require('./musicQueue');
+
+const PYTHON_PATH = process.env.PYTHON_PATH || 'C:/Program Files/Python314/python.exe';
+const TRANSCRIBE_SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'transcribe.py');
+
+function transcribeWav(wavPath) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(PYTHON_PATH, [TRANSCRIBE_SCRIPT, wavPath]);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`transcribe.py exited with code ${code}: ${stderr}`));
+        return;
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+const WAKE_WORD_REGEX = /\bhey\s*(?:diddy|ditty)\b/i;
+const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
+const SILENCE_DURATION_MS = 1_000;
+// Minimum bytes of PCM (48kHz, 16-bit, stereo) to bother transcribing (~0.3s)
+const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
+
+/**
+ * Strips punctuation (keeping word characters and spaces) and collapses
+ * whitespace, so transcripts like "Hey, Diddy. Play last night." can be
+ * reliably matched regardless of how Whisper punctuates them.
+ */
+function normalizeTranscript(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** @type {Map<string, GuildListenState>} */
+const listeners = new Map();
+
+/**
+ * @typedef {Object} GuildListenState
+ * @property {import('@discordjs/voice').VoiceConnection} connection
+ * @property {import('discord.js').VoiceBasedChannel} voiceChannel
+ * @property {import('discord.js').TextBasedChannel} textChannel
+ * @property {import('discord.js').Guild} guild
+ * @property {Set<string>} activeUsers
+ * @property {boolean} awaitingCommand
+ * @property {NodeJS.Timeout | null} awaitingTimeout
+ * @property {(userId: string) => void} speakingHandler
+ */
+
+function isListening(guildId) {
+  return listeners.has(guildId);
+}
+
+function startListening(guildId, connection, voiceChannel, textChannel, guild) {
+  if (listeners.has(guildId)) return listeners.get(guildId);
+
+  /** @type {GuildListenState} */
+  const state = {
+    connection,
+    voiceChannel,
+    textChannel,
+    guild,
+    activeUsers: new Set(),
+    awaitingCommand: false,
+    awaitingTimeout: null,
+    speakingHandler: null,
+  };
+
+  const speakingHandler = (userId) => {
+    if (userId === guild.members.me?.id) return;
+    if (state.activeUsers.has(userId)) return;
+    state.activeUsers.add(userId);
+    handleUtterance(guildId, state, userId).finally(() => {
+      state.activeUsers.delete(userId);
+    });
+  };
+
+  state.speakingHandler = speakingHandler;
+  connection.receiver.speaking.on('start', speakingHandler);
+  listeners.set(guildId, state);
+  console.log(`[voice:${guildId}] Started listening in #${voiceChannel.name}`);
+  return state;
+}
+
+function stopListening(guildId) {
+  const state = listeners.get(guildId);
+  if (!state) return;
+
+  if (state.awaitingTimeout) clearTimeout(state.awaitingTimeout);
+  try {
+    state.connection.receiver.speaking.removeListener('start', state.speakingHandler);
+  } catch {
+    // ignore
+  }
+  listeners.delete(guildId);
+  console.log(`[voice:${guildId}] Stopped listening`);
+}
+
+async function handleUtterance(guildId, state, userId) {
+  console.log(`[voice:${guildId}] Capturing audio from user ${userId}...`);
+  const opusStream = state.connection.receiver.subscribe(userId, {
+    end: { behavior: EndBehaviorType.AfterSilence, duration: SILENCE_DURATION_MS },
+  });
+
+  const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+  const chunks = [];
+
+  try {
+    for await (const chunk of opusStream.pipe(decoder)) {
+      chunks.push(chunk);
+    }
+  } catch (err) {
+    console.error(`Voice capture error for user ${userId} in guild ${guildId}:`, err);
+    return;
+  }
+
+  const pcmData = Buffer.concat(chunks);
+  if (pcmData.length < MIN_PCM_BYTES) {
+    console.log(
+      `[voice:${guildId}] Ignoring short clip from ${userId} (${pcmData.length} bytes < ${MIN_PCM_BYTES} min)`
+    );
+    return;
+  }
+
+  const wavPath = path.join(os.tmpdir(), `dbot-voice-${guildId}-${userId}-${Date.now()}.wav`);
+  let transcript;
+  try {
+    const wavBuffer = pcmToWav(pcmData);
+    fs.writeFileSync(wavPath, wavBuffer);
+    transcript = (await transcribeWav(wavPath)).trim();
+  } catch (err) {
+    console.error(`Transcription failed in guild ${guildId}:`, err?.message ?? err);
+    return;
+  } finally {
+    fs.unlink(wavPath, () => {});
+  }
+
+  if (!transcript) {
+    console.log(`[voice:${guildId}] ${userId} said nothing recognizable (empty transcript)`);
+    return;
+  }
+
+  console.log(`[voice:${guildId}] ${userId} heard: "${transcript}"`);
+  if (process.env.VOICE_DEBUG) {
+    state.textChannel?.send(`🗣️ Heard: "${transcript}"`).catch(() => {});
+  }
+
+  const normalized = normalizeTranscript(transcript);
+
+  if (state.awaitingCommand) {
+    if (state.awaitingTimeout) clearTimeout(state.awaitingTimeout);
+    state.awaitingCommand = false;
+    await processCommand(guildId, state, normalized);
+    return;
+  }
+
+  const wakeMatch = normalized.match(WAKE_WORD_REGEX);
+  if (!wakeMatch) return;
+
+  const after = normalized.slice(wakeMatch.index + wakeMatch[0].length).trim();
+  if (after.length > 0) {
+    await processCommand(guildId, state, after);
+  } else {
+    state.awaitingCommand = true;
+    state.textChannel?.send('🎤 Listening... what should I do?').catch(() => {});
+    state.awaitingTimeout = setTimeout(() => {
+      state.awaitingCommand = false;
+    }, AWAITING_COMMAND_TIMEOUT_MS);
+  }
+}
+
+async function processCommand(guildId, state, text) {
+  const playMatch = text.match(/^(?:play|put on|queue)\s+(.+)/i);
+
+  if (playMatch) {
+    const query = playMatch[1].trim();
+    try {
+      const songInfo = await resolveSong(query);
+      const song = { title: songInfo.title, url: songInfo.url, requestedBy: 'voice command' };
+      const { started } = await enqueueSong(state.guild, state.voiceChannel, state.textChannel, song);
+      state.textChannel
+        ?.send(started ? `🎶 Loading: **${song.title}**` : `✅ Added to queue: **${song.title}**`)
+        .catch(() => {});
+    } catch (err) {
+      state.textChannel?.send(`❌ Couldn't find "${query}".`).catch(() => {});
+    }
+    return;
+  }
+
+  const queue = getQueue(guildId);
+
+  if (/^skip$/i.test(text)) {
+    if (queue?.songs.length) {
+      queue.player.stop();
+      state.textChannel?.send('⏭️ Skipped.').catch(() => {});
+    }
+    return;
+  }
+
+  if (/^pause$/i.test(text)) {
+    if (queue?.playing) {
+      queue.player.pause();
+      state.textChannel?.send('⏸️ Paused.').catch(() => {});
+    }
+    return;
+  }
+
+  if (/^resume$/i.test(text)) {
+    if (queue) {
+      queue.player.unpause();
+      state.textChannel?.send('▶️ Resumed.').catch(() => {});
+    }
+    return;
+  }
+
+  if (/^stop$/i.test(text)) {
+    if (queue) {
+      queue.songs = [];
+      destroyQueue(guildId);
+      stopListening(guildId);
+      state.textChannel?.send('⏹️ Stopped playback and stopped listening.').catch(() => {});
+    }
+    return;
+  }
+
+  state.textChannel?.send(`❓ Didn't recognize that command: "${text}"`).catch(() => {});
+}
+
+module.exports = { startListening, stopListening, isListening };
