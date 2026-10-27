@@ -9,7 +9,7 @@ const ffmpegPath = require('ffmpeg-static');
 const PYTHON_PATH = process.env.PYTHON_PATH || 'C:/Program Files/Python314/python.exe';
 const TTS_SERVER_SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'tts_server.py');
 const CACHE_DIR = path.join(os.tmpdir(), 'dbot-tts');
-const VOICE = process.env.TTS_VOICE || 'en_US-ryan-high';
+const VOICE = process.env.TTS_VOICE || 'en_US-joe-medium';
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**

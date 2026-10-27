@@ -11,7 +11,7 @@ Once listening, prints one JSON line to stdout: {"ready": true, "port": N}.
 Everything runs offline. Voices live in models/piper (download more with:
 python -m piper.download_voices --download-dir models/piper <voice-name>).
 
-Env: TTS_VOICE (Piper voice name, default en_US-ryan-high),
+Env: TTS_VOICE (Piper voice name, default en_US-joe-medium),
      TTS_LENGTH_SCALE (speaking pace, <1 is faster, default 1.0).
 """
 import argparse
@@ -26,7 +26,7 @@ from pathlib import Path
 from piper import PiperVoice, SynthesisConfig
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models" / "piper"
-VOICE_NAME = os.environ.get("TTS_VOICE", "en_US-ryan-high")
+VOICE_NAME = os.environ.get("TTS_VOICE", "en_US-joe-medium")
 LENGTH_SCALE = float(os.environ.get("TTS_LENGTH_SCALE", "1.0"))
 MAX_TEXT_CHARS = 1000
 
