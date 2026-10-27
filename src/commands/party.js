@@ -22,7 +22,7 @@ module.exports = {
     await interaction.deferReply();
     try {
       await ensureQueue(interaction.guild, voiceChannel, getDiddyChannel(interaction.guild));
-      await interaction.editReply('🎉 Hell yeah!');
+      await interaction.editReply('🎉');
       await speak(interaction.guildId, RESPONSE);
     } catch (err) {
       console.error('Party command failed:', err);
@@ -38,8 +38,8 @@ module.exports = {
     ],
     examples: ['can we have a party'],
     async run({ guildId }) {
+      // Spoken only; nothing is posted to text.
       await speak(guildId, RESPONSE);
-      return '🎉 Hell yeah!';
     },
   },
 };
