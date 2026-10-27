@@ -56,7 +56,14 @@ function startWorker() {
     pending.delete(msg.id);
     clearTimeout(entry.timer);
     if (msg.error) entry.reject(new Error(msg.error));
-    else entry.resolve(msg.text ?? '');
+    else {
+      entry.resolve({
+        text: msg.text ?? '',
+        // null when Whisper produced no segments
+        noSpeechProb: msg.no_speech_prob ?? null,
+        avgLogprob: msg.avg_logprob ?? null,
+      });
+    }
   });
 
   let stderrTail = '';
@@ -97,7 +104,10 @@ function stop() {
   }
 }
 
-/** Transcribes a 16-bit PCM WAV file and resolves with the text. */
+/**
+ * Transcribes a 16-bit PCM WAV file. Resolves with the text plus Whisper's
+ * confidence stats: { text, noSpeechProb, avgLogprob }.
+ */
 function transcribeWav(wavPath) {
   const w = getWorker();
   const id = nextId++;

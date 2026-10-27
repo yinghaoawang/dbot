@@ -119,10 +119,13 @@ async function handleUtterance(guildId, state, userId) {
 
   const wavPath = path.join(os.tmpdir(), `dbot-voice-${guildId}-${userId}-${Date.now()}.wav`);
   let transcript;
+  let confidence;
   try {
     const wavBuffer = pcmToWav(pcmData);
     fs.writeFileSync(wavPath, wavBuffer);
-    transcript = (await transcribeWav(wavPath)).trim();
+    const result = await transcribeWav(wavPath);
+    transcript = result.text.trim();
+    confidence = { noSpeechProb: result.noSpeechProb, avgLogprob: result.avgLogprob };
   } catch (err) {
     console.error(`Transcription failed in guild ${guildId}:`, err?.message ?? err);
     return;
@@ -135,7 +138,11 @@ async function handleUtterance(guildId, state, userId) {
     return;
   }
 
-  console.log(`[voice:${guildId}] ${userId} heard: "${transcript}"`);
+  const stats = (n) => (n == null ? '?' : n.toFixed(2));
+  console.log(
+    `[voice:${guildId}] ${userId} heard: "${transcript}" ` +
+      `(no_speech ${stats(confidence.noSpeechProb)}, logprob ${stats(confidence.avgLogprob)})`
+  );
   logTranscript({ guild: state.guild, voiceChannel: state.voiceChannel, userId, text: transcript });
   if (process.env.VOICE_DEBUG) {
     state.textChannel?.send(`🗣️ Heard: "${transcript}"`).catch(() => {});
@@ -146,7 +153,7 @@ async function handleUtterance(guildId, state, userId) {
   if (state.awaitingCommand) {
     if (state.awaitingTimeout) clearTimeout(state.awaitingTimeout);
     state.awaitingCommand = false;
-    await processCommand(guildId, state, normalized);
+    await processCommand(guildId, state, normalized, confidence);
     return;
   }
 
@@ -155,7 +162,7 @@ async function handleUtterance(guildId, state, userId) {
 
   const after = wakeMatch.after;
   if (after.length > 0) {
-    await processCommand(guildId, state, after);
+    await processCommand(guildId, state, after, confidence);
   } else {
     state.awaitingCommand = true;
     state.textChannel?.send('🎤 Listening... what should I do?').catch(() => {});
@@ -165,8 +172,8 @@ async function handleUtterance(guildId, state, userId) {
   }
 }
 
-async function processCommand(guildId, state, text) {
-  const handled = await runVoiceCommand(text, { guildId, state });
+async function processCommand(guildId, state, text, confidence) {
+  const handled = await runVoiceCommand(text, { guildId, state, confidence });
   if (!handled) {
     state.textChannel?.send(`❓ Didn't recognize that command: "${text}"`).catch(() => {});
   }

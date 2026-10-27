@@ -10,6 +10,9 @@
  *     async run({ text, match, guildId, state }) {
  *       return '⏭️ Skipped.';            // optional string -> posted to the text channel
  *     },
+ *     // Optional: for disruptive commands that must not fire on mis-heard audio.
+ *     // The transcription must be at least this confident or the command is dropped.
+ *     minConfidence: { maxNoSpeechProb: 0.3, minAvgLogprob: -0.6 },
  *   }
  *
  * Commands are discovered automatically, so new commands only need a `voice`
@@ -35,6 +38,15 @@ function loadVoiceCommands() {
   return cache;
 }
 
+/** True unless the command demands a minimum transcription confidence and `confidence` falls short. */
+function isConfidentEnough(command, confidence) {
+  const min = command.minConfidence;
+  if (!min || !confidence) return true;
+  if (confidence.noSpeechProb != null && confidence.noSpeechProb > min.maxNoSpeechProb) return false;
+  if (confidence.avgLogprob != null && confidence.avgLogprob < min.minAvgLogprob) return false;
+  return true;
+}
+
 /**
  * Runs the first voice command whose pattern matches `text`.
  * Returns true if a command handled it.
@@ -44,6 +56,11 @@ async function runVoiceCommand(text, ctx) {
     for (const pattern of command.patterns) {
       const match = text.match(pattern);
       if (!match) continue;
+      if (!isConfidentEnough(command, ctx.confidence)) {
+        // Swallow it silently: likely a hallucinated or mumbled phrase, not a real command.
+        console.log(`[voice] Ignored low-confidence "${command.name}" command: "${text}"`);
+        return true;
+      }
       try {
         const reply = await command.run({ ...ctx, text, match });
         if (reply) ctx.state.textChannel?.send(reply).catch(() => {});

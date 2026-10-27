@@ -20,6 +20,8 @@ module.exports = {
   voice: {
     patterns: [/^pause(?: (?:song|music|it|playback))?$/],
     examples: ['pause'],
+    // Pause kept firing on phrases nobody said; only accept it when Whisper is sure.
+    minConfidence: { maxNoSpeechProb: 0.3, minAvgLogprob: -0.6 },
     async run({ guildId }) {
       const queue = getQueue(guildId);
       if (!queue?.playing) return '❌ Nothing is playing.';

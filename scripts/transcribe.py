@@ -7,8 +7,8 @@ Usage:
 
 Server mode loads the faster-whisper model once, prints {"ready": true}, then
 reads one JSON request per stdin line ({"id": 1, "path": "x.wav"}) and writes
-one JSON response per stdout line ({"id": 1, "text": "..."} or
-{"id": 1, "error": "..."}). This avoids reloading the model for every
+one JSON response per stdout line ({"id": 1, "text": "...", "no_speech_prob": 0.02,
+"avg_logprob": -0.1} or {"id": 1, "error": "..."}). This avoids reloading the model for every
 utterance, which is the slowest part of transcription.
 
 Reads the WAV file directly with the stdlib `wave` module and converts it to
@@ -76,7 +76,14 @@ def transcribe(model, wav_path):
         hotwords=WAKE_WORD,
         condition_on_previous_text=False,
     )
-    return "".join(segment.text for segment in segments).strip()
+    segments = list(segments)
+    return {
+        "text": "".join(segment.text for segment in segments).strip(),
+        # Worst-case confidence across segments. Hallucinated text (e.g. the
+        # prompt echoed on noise) has a high no_speech_prob / low avg_logprob.
+        "no_speech_prob": max((s.no_speech_prob for s in segments), default=None),
+        "avg_logprob": min((s.avg_logprob for s in segments), default=None),
+    }
 
 
 def serve():
@@ -106,7 +113,7 @@ def serve():
         try:
             req = json.loads(line)
             req_id = req.get("id")
-            send({"id": req_id, "text": transcribe(model, req["path"])})
+            send({"id": req_id, **transcribe(model, req["path"])})
         except Exception as err:
             send({"id": req_id, "error": f"{type(err).__name__}: {err}"})
 
@@ -120,7 +127,7 @@ def main():
         print("Usage: python transcribe.py --server | <wav-file>", file=sys.stderr)
         sys.exit(1)
 
-    print(transcribe(load_model(), sys.argv[1]))
+    print(transcribe(load_model(), sys.argv[1])["text"])
 
 
 if __name__ == "__main__":
