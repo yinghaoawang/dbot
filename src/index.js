@@ -6,6 +6,7 @@ const { startListening, isListening } = require('./utils/voiceListener');
 const { ensureQueue } = require('./utils/musicQueue');
 const { getDiddyChannel } = require('./utils/diddyChannel');
 const transcriber = require('./utils/transcriber');
+const tts = require('./utils/tts');
 
 const client = new Client({
   intents: [
@@ -78,4 +79,6 @@ client.login(process.env.DISCORD_TOKEN);
 
 // Load the Whisper model now so the first voice command isn't slow.
 transcriber.preload();
+tts.preload();
 process.on('exit', transcriber.stop);
+process.on('exit', tts.stop);
