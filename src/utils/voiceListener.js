@@ -7,6 +7,7 @@ const path = require('node:path');
 const { pcmToWav } = require('./wav');
 const { resolveSong } = require('./songResolver');
 const { getQueue, enqueueSong, destroyQueue } = require('./musicQueue');
+const { findWakeWord } = require('./wakeWord');
 
 const PYTHON_PATH = process.env.PYTHON_PATH || 'C:/Program Files/Python314/python.exe';
 const TRANSCRIBE_SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'transcribe.py');
@@ -35,7 +36,6 @@ function transcribeWav(wavPath) {
   });
 }
 
-const WAKE_WORD_REGEX = /\bhey\s*(?:diddy|ditty)\b/i;
 const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
 const SILENCE_DURATION_MS = 1_000;
 // Minimum bytes of PCM (48kHz, 16-bit, stereo) to bother transcribing (~0.3s)
@@ -176,10 +176,10 @@ async function handleUtterance(guildId, state, userId) {
     return;
   }
 
-  const wakeMatch = normalized.match(WAKE_WORD_REGEX);
+  const wakeMatch = findWakeWord(normalized);
   if (!wakeMatch) return;
 
-  const after = normalized.slice(wakeMatch.index + wakeMatch[0].length).trim();
+  const after = wakeMatch.after;
   if (after.length > 0) {
     await processCommand(guildId, state, after);
   } else {

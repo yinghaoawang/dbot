@@ -17,6 +17,7 @@ import os
 import wave
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "base")
+WAKE_WORD = os.environ.get("WAKE_WORD", "Hey Diddy")
 TARGET_SAMPLE_RATE = 16000
 
 
@@ -60,7 +61,13 @@ def main():
     audio = load_wav_as_float32(wav_path)
 
     model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(audio, beam_size=1)
+    segments, _info = model.transcribe(
+        audio,
+        beam_size=5,
+        language="en",
+        initial_prompt=f"{WAKE_WORD}, play some music. {WAKE_WORD}, skip. {WAKE_WORD}, pause.",
+        hotwords=WAKE_WORD,
+    )
 
     text = "".join(segment.text for segment in segments).strip()
     print(text)
