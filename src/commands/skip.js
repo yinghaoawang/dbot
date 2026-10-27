@@ -16,4 +16,15 @@ module.exports = {
     queue.player.stop();
     await interaction.reply('⏭️ Skipped.');
   },
+
+  voice: {
+    patterns: [/^(?:skip|next)(?: (?:song|track|this one|it))?$/],
+    examples: ['skip'],
+    async run({ guildId }) {
+      const queue = getQueue(guildId);
+      if (!queue?.songs.length) return '❌ Nothing is playing.';
+      queue.player.stop();
+      return '⏭️ Skipped.';
+    },
+  },
 };

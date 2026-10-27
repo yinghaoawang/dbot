@@ -68,4 +68,21 @@ module.exports = {
       await interaction.editReply(`✅ Added to queue: **${song.title}** (position ${queue.songs.length})`);
     }
   },
+
+  voice: {
+    patterns: [/^(?:play|put on|queue)\s+(.+)/],
+    examples: ['play last night by diddy'],
+    async run({ state, match }) {
+      const query = match[1].trim();
+      let songInfo;
+      try {
+        songInfo = await resolveSong(query);
+      } catch {
+        return `❌ Couldn't find "${query}".`;
+      }
+      const song = { title: songInfo.title, url: songInfo.url, requestedBy: 'voice command' };
+      const { started } = await enqueueSong(state.guild, state.voiceChannel, state.textChannel, song);
+      return started ? `🎶 Loading: **${song.title}**` : `✅ Added to queue: **${song.title}**`;
+    },
+  },
 };

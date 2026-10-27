@@ -19,4 +19,17 @@ module.exports = {
     destroyQueue(interaction.guildId);
     await interaction.reply('⏹️ Stopped playback and left the voice channel.');
   },
+
+  voice: {
+    patterns: [/^(?:stop|leave|disconnect)(?: (?:playing|music|playback|the music))?$/],
+    examples: ['stop'],
+    async run({ guildId }) {
+      const queue = getQueue(guildId);
+      if (!queue) return '❌ Nothing is playing.';
+      queue.songs = [];
+      stopListening(guildId);
+      destroyQueue(guildId);
+      return '⏹️ Stopped playback and left the voice channel.';
+    },
+  },
 };

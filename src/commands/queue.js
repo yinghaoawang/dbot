@@ -1,6 +1,13 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getQueue } = require('../utils/musicQueue');
 
+function formatQueue(queue) {
+  const list = queue.songs
+    .map((song, i) => `${i === 0 ? '▶️' : `${i}.`} **${song.title}** — requested by ${song.requestedBy}`)
+    .join('\n');
+  return `🎵 **Current Queue:**\n${list}`;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('queue')
@@ -13,10 +20,16 @@ module.exports = {
       return;
     }
 
-    const list = queue.songs
-      .map((song, i) => `${i === 0 ? '▶️' : `${i}.`} **${song.title}** — requested by ${song.requestedBy}`)
-      .join('\n');
+    await interaction.reply(formatQueue(queue));
+  },
 
-    await interaction.reply(`🎵 **Current Queue:**\n${list}`);
+  voice: {
+    patterns: [/^(?:show |what s in |list )?(?:the |my )?(?:queue|playlist)$/],
+    examples: ['show the queue'],
+    async run({ guildId }) {
+      const queue = getQueue(guildId);
+      if (!queue?.songs.length) return '📭 The queue is empty.';
+      return formatQueue(queue);
+    },
   },
 };

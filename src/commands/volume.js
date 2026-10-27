@@ -1,7 +1,14 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getQueue, setVolume, getPendingOrCurrentVolume } = require('../utils/musicQueue');
+const { extractNumber } = require('../utils/voiceCommands');
 
 const STEP = 0.1; // 10%
+
+function applyVolume(guildId, newVolume) {
+  const applied = setVolume(guildId, newVolume);
+  const suffix = getQueue(guildId) ? '' : ' (will apply when playback starts)';
+  return `🔊 Volume set to **${Math.round(applied * 100)}%**${suffix}`;
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -36,10 +43,23 @@ module.exports = {
       newVolume -= STEP;
     }
 
-    const applied = setVolume(interaction.guildId, newVolume);
-    const displayPercent = Math.round(applied * 100);
-    const queue = getQueue(interaction.guildId);
-    const suffix = queue ? '' : ' (will apply when playback starts)';
-    await interaction.reply(`🔊 Volume set to **${displayPercent}%**${suffix}`);
+    await interaction.reply(applyVolume(interaction.guildId, newVolume));
+  },
+
+  voice: {
+    patterns: [
+      /^(?:set |change )?(?:the )?volume(?: (.+))?$/,
+      /^(?:louder|quieter|turn (?:it )?(?:up|down))$/,
+    ],
+    examples: ['volume 50', 'volume up', 'volume down'],
+    async run({ guildId, text }) {
+      const current = getPendingOrCurrentVolume(guildId);
+      if (/\b(?:up|louder|raise|increase)\b/.test(text)) return applyVolume(guildId, current + STEP);
+      if (/\b(?:down|quieter|lower|decrease)\b/.test(text)) return applyVolume(guildId, current - STEP);
+
+      const percent = extractNumber(text);
+      if (percent === null) return `🔊 Volume is **${Math.round(current * 100)}%**.`;
+      return applyVolume(guildId, percent / 100);
+    },
   },
 };

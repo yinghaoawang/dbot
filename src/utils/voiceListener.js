@@ -5,8 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pcmToWav } = require('./wav');
-const { resolveSong } = require('./songResolver');
-const { getQueue, enqueueSong, destroyQueue } = require('./musicQueue');
+const { runVoiceCommand } = require('./voiceCommands');
 const { findWakeWord } = require('./wakeWord');
 
 const PYTHON_PATH = process.env.PYTHON_PATH || 'C:/Program Files/Python314/python.exe';
@@ -192,60 +191,10 @@ async function handleUtterance(guildId, state, userId) {
 }
 
 async function processCommand(guildId, state, text) {
-  const playMatch = text.match(/^(?:play|put on|queue)\s+(.+)/i);
-
-  if (playMatch) {
-    const query = playMatch[1].trim();
-    try {
-      const songInfo = await resolveSong(query);
-      const song = { title: songInfo.title, url: songInfo.url, requestedBy: 'voice command' };
-      const { started } = await enqueueSong(state.guild, state.voiceChannel, state.textChannel, song);
-      state.textChannel
-        ?.send(started ? `🎶 Loading: **${song.title}**` : `✅ Added to queue: **${song.title}**`)
-        .catch(() => {});
-    } catch (err) {
-      state.textChannel?.send(`❌ Couldn't find "${query}".`).catch(() => {});
-    }
-    return;
+  const handled = await runVoiceCommand(text, { guildId, state });
+  if (!handled) {
+    state.textChannel?.send(`❓ Didn't recognize that command: "${text}"`).catch(() => {});
   }
-
-  const queue = getQueue(guildId);
-
-  if (/^skip$/i.test(text)) {
-    if (queue?.songs.length) {
-      queue.player.stop();
-      state.textChannel?.send('⏭️ Skipped.').catch(() => {});
-    }
-    return;
-  }
-
-  if (/^pause$/i.test(text)) {
-    if (queue?.playing) {
-      queue.player.pause();
-      state.textChannel?.send('⏸️ Paused.').catch(() => {});
-    }
-    return;
-  }
-
-  if (/^resume$/i.test(text)) {
-    if (queue) {
-      queue.player.unpause();
-      state.textChannel?.send('▶️ Resumed.').catch(() => {});
-    }
-    return;
-  }
-
-  if (/^stop$/i.test(text)) {
-    if (queue) {
-      queue.songs = [];
-      destroyQueue(guildId);
-      stopListening(guildId);
-      state.textChannel?.send('⏹️ Stopped playback and stopped listening.').catch(() => {});
-    }
-    return;
-  }
-
-  state.textChannel?.send(`❓ Didn't recognize that command: "${text}"`).catch(() => {});
 }
 
 module.exports = { startListening, stopListening, isListening };

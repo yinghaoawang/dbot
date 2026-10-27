@@ -16,4 +16,15 @@ module.exports = {
     queue.player.unpause();
     await interaction.reply('▶️ Resumed.');
   },
+
+  voice: {
+    patterns: [/^(?:resume|unpause|continue)(?: (?:song|music|it|playing|playback))?$/],
+    examples: ['resume'],
+    async run({ guildId }) {
+      const queue = getQueue(guildId);
+      if (!queue) return '❌ Nothing is playing.';
+      queue.player.unpause();
+      return '▶️ Resumed.';
+    },
+  },
 };

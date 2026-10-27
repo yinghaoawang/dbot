@@ -16,4 +16,15 @@ module.exports = {
     queue.player.pause();
     await interaction.reply('⏸️ Paused.');
   },
+
+  voice: {
+    patterns: [/^pause(?: (?:song|music|it|playback))?$/],
+    examples: ['pause'],
+    async run({ guildId }) {
+      const queue = getQueue(guildId);
+      if (!queue?.playing) return '❌ Nothing is playing.';
+      queue.player.pause();
+      return '⏸️ Paused.';
+    },
+  },
 };

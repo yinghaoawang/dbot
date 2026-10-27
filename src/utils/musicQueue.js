@@ -11,6 +11,7 @@ const youtubedl = require('yt-dlp-exec');
 const { spawn } = require('node:child_process');
 const ffmpegPath = require('ffmpeg-static');
 const volumeStore = require('./volumeStore');
+const tts = require('./tts');
 
 /**
  * @typedef {Object} Song
@@ -246,6 +247,46 @@ async function enqueueSong(guild, voiceChannel, textChannel, song) {
   return { queue, started };
 }
 
+/**
+ * Speaks `text` in the guild's voice channel using TTS. Music is paused while
+ * the announcement plays and resumed afterwards. Requires an existing queue
+ * (voice connection).
+ */
+async function speak(guildId, text) {
+  const queue = getQueue(guildId);
+  if (!queue) throw new Error('Not connected to a voice channel.');
+
+  const mp3Path = await tts.synthesize(text);
+  const ffmpeg = tts.decodeToPcm(mp3Path);
+  const announcer = createAudioPlayer();
+  const musicWasPlaying = queue.player.state.status === AudioPlayerStatus.Playing;
+
+  const finished = new Promise((resolve) => {
+    announcer.on('stateChange', (_old, next) => {
+      if (next.status === AudioPlayerStatus.Idle) resolve();
+    });
+    announcer.on('error', (err) => {
+      console.error('TTS player error:', err);
+      resolve();
+    });
+  });
+
+  if (musicWasPlaying) queue.player.pause();
+  queue.connection.subscribe(announcer);
+  announcer.play(createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw }));
+
+  try {
+    await finished;
+  } finally {
+    ffmpeg.kill();
+    // The queue may have been destroyed (e.g. "stop") while speaking.
+    if (getQueue(guildId) === queue) {
+      queue.connection.subscribe(queue.player);
+      if (musicWasPlaying) queue.player.unpause();
+    }
+  }
+}
+
 module.exports = {
   queues,
   getQueue,
@@ -256,5 +297,6 @@ module.exports = {
   getPendingOrCurrentVolume,
   ensureQueue,
   enqueueSong,
+  speak,
   DEFAULT_VOLUME,
 };
