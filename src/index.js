@@ -4,6 +4,7 @@ const path = require('node:path');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
 const { startListening, isListening } = require('./utils/voiceListener');
 const { ensureQueue } = require('./utils/musicQueue');
+const transcriber = require('./utils/transcriber');
 
 const client = new Client({
   intents: [
@@ -73,3 +74,7 @@ if (!process.env.DISCORD_TOKEN) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
+
+// Load the Whisper model now so the first voice command isn't slow.
+transcriber.preload();
+process.on('exit', transcriber.stop);

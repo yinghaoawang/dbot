@@ -1,48 +1,12 @@
 const { EndBehaviorType } = require('@discordjs/voice');
 const prism = require('prism-media');
-const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { pcmToWav } = require('./wav');
+const { transcribeWav } = require('./transcriber');
 const { runVoiceCommand } = require('./voiceCommands');
 const { findWakeWord } = require('./wakeWord');
-
-const PYTHON_PATH = process.env.PYTHON_PATH || 'C:/Program Files/Python314/python.exe';
-const TRANSCRIBE_SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'transcribe.py');
-
-function transcribeWav(wavPath) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(PYTHON_PATH, [TRANSCRIBE_SCRIPT, wavPath]);
-    let stdout = '';
-    let stderr = '';
-
-    const timeout = setTimeout(() => {
-      proc.kill();
-      reject(new Error('Transcription timed out after 60 seconds'));
-    }, 60_000);
-
-    proc.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-    proc.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        reject(new Error(`transcribe.py exited with code ${code}: ${stderr}`));
-        return;
-      }
-      resolve(stdout.trim());
-    });
-  });
-}
 
 const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
 const SILENCE_DURATION_MS = 1_000;
