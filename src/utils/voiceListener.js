@@ -17,6 +17,11 @@ function transcribeWav(wavPath) {
     let stdout = '';
     let stderr = '';
 
+    const timeout = setTimeout(() => {
+      proc.kill();
+      reject(new Error('Transcription timed out after 60 seconds'));
+    }, 60_000);
+
     proc.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
     });
@@ -24,8 +29,12 @@ function transcribeWav(wavPath) {
       stderr += chunk.toString();
     });
 
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
     proc.on('close', (code) => {
+      clearTimeout(timeout);
       if (code !== 0) {
         reject(new Error(`transcribe.py exited with code ${code}: ${stderr}`));
         return;
