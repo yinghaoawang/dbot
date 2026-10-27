@@ -46,11 +46,19 @@ async function synthesize(text) {
   return mp3Path;
 }
 
-/** Starts an ffmpeg process decoding the audio file to raw 48kHz stereo s16le PCM. */
-function decodeToPcm(filePath) {
+/** Starts an ffmpeg process decoding the audio file to raw 48kHz stereo s16le PCM, with volume boost. */
+function decodeToPcm(filePath, volumeGain = 2) {
   const ffmpeg = spawn(
     ffmpegPath,
-    ['-loglevel', 'error', '-i', filePath, '-f', 's16le', '-ar', '48000', '-ac', '2', 'pipe:1'],
+    [
+      '-loglevel', 'error',
+      '-i', filePath,
+      '-af', `volume=${volumeGain}`,
+      '-f', 's16le',
+      '-ar', '48000',
+      '-ac', '2',
+      'pipe:1',
+    ],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
   ffmpeg.stderr.on('data', (data) => console.error('ffmpeg (tts):', data.toString()));

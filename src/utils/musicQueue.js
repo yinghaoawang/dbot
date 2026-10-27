@@ -257,7 +257,7 @@ async function speak(guildId, text) {
   if (!queue) throw new Error('Not connected to a voice channel.');
 
   const mp3Path = await tts.synthesize(text);
-  const ffmpeg = tts.decodeToPcm(mp3Path);
+  const ffmpeg = tts.decodeToPcm(mp3Path, 3); // boost volume by 3x
   const announcer = createAudioPlayer();
   const musicWasPlaying = queue.player.state.status === AudioPlayerStatus.Playing;
 
