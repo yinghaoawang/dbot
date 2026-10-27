@@ -9,7 +9,7 @@
  */
 
 const WAKE_PHRASE = (process.env.WAKE_WORD || 'hey diddy').toLowerCase().trim();
-const THRESHOLD = Number(process.env.WAKE_THRESHOLD) || 0.85;
+const THRESHOLD = Number(process.env.WAKE_THRESHOLD) || 0.92;
 // Only look for the wake phrase near the start of an utterance.
 const MAX_START_WORD = 2;
 
