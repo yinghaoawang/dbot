@@ -23,7 +23,7 @@ import os
 import wave
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "base.en")
-WAKE_WORD = os.environ.get("WAKE_WORD", "Hey Diddy")
+WAKE_WORD = os.environ.get("WAKE_WORD", "Hey Diddy Bot")
 TARGET_SAMPLE_RATE = 16000
 
 

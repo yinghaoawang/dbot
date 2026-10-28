@@ -7,7 +7,7 @@ const { getDiddyChannel } = require('../utils/diddyChannel');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('listen')
-    .setDescription('Enable or disable voice command listening ("hey diddy")')
+    .setDescription('Enable or disable voice command listening ("hey diddy bot")')
     .addSubcommand((sub) => sub.setName('start').setDescription('Start listening for voice commands'))
     .addSubcommand((sub) => sub.setName('stop').setDescription('Stop listening for voice commands')),
 
@@ -77,7 +77,7 @@ module.exports = {
 
     const examples = getVoiceExamples().map((e) => `**${e}**`).join(', ');
     await interaction.editReply(
-      `🎤 Listening for voice commands! Say **"hey diddy"** then a command like ${examples}.`
+      `🎤 Listening for voice commands! Say **"hey diddy bot"** then a command like ${examples}.`
     );
   },
 

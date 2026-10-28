@@ -11,9 +11,14 @@ const { findWakeWord } = require('./wakeWord');
 const { logTranscript } = require('./transcriptLog');
 
 const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
-const SILENCE_DURATION_MS = 2_000;
+const SILENCE_DURATION_MS = 1_250;
 // Minimum bytes of PCM (48kHz, 16-bit, stereo) to bother transcribing (~0.3s)
 const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
+// Whisper invents short common phrases ("pause", "thank you") on near-silence, often
+// with deceptively good scores. Require the clip carrying the wake word to clear
+// these bars, otherwise a hallucination can trigger "hey diddy ..." out of nowhere.
+const WAKE_MAX_NO_SPEECH_PROB = 0.4;
+const WAKE_MIN_AVG_LOGPROB = -0.8;
 // Minimum gap between attempts to repair the end-to-end encryption session.
 const DAVE_RECOVERY_COOLDOWN_MS = 10_000;
 
@@ -187,6 +192,16 @@ async function handleUtterance(guildId, state, userId) {
 
   const wakeMatch = findWakeWord(normalized);
   if (!wakeMatch) return;
+
+  // A clip containing the wake word must be a confident transcription; low-confidence
+  // ones are usually Whisper hallucinating the wake phrase on background noise.
+  if (
+    (confidence.noSpeechProb != null && confidence.noSpeechProb > WAKE_MAX_NO_SPEECH_PROB) ||
+    (confidence.avgLogprob != null && confidence.avgLogprob < WAKE_MIN_AVG_LOGPROB)
+  ) {
+    console.log(`[voice:${guildId}] Ignoring low-confidence wake word in "${transcript}"`);
+    return;
+  }
 
   const after = wakeMatch.after;
   if (after.length > 0) {
