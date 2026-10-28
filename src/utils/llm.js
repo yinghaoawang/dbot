@@ -3,14 +3,12 @@
 // result snippets are cleaned, split into sentences, and the sentence that best
 // matches the question is spoken. Configure with env:
 //   PERPLEXITY_API_KEY  (required) key from https://console.perplexity.ai
-//   LLM_MAX_WORDS       default 34 (about 11 seconds with the en_US-joe-medium voice)
 
 const SEARCH_TIMEOUT_MS = 8_000;
 const SEARCH_MAX_RESULTS = 5;
 const SEARCH_TOKENS_PER_PAGE = 300;
 const SEARCH_MAX_TOKENS = 1200;
 
-const MAX_WORDS = Number(process.env.LLM_MAX_WORDS) || 34;
 const MAX_QUESTION_CHARS = 500;
 const MIN_SENTENCE_WORDS = 5;
 const MAX_SENTENCE_WORDS = 60;
@@ -88,33 +86,21 @@ function extractAnswer(question, results) {
       let score = coverage * 3 - rank * 0.15;
       if (wantsNumber && /\d/.test(sentence)) score += 1;
       if (!/[.!?]$/.test(sentence)) score -= 0.5;
-      if (sentence.split(' ').length > MAX_WORDS) score -= 0.3;
       if (score > best.score) best = { score, sentence };
     }
   });
   return best.sentence;
 }
 
-/**
- * Cleans text for speech and enforces the word limit, cutting at the last full
- * sentence when possible.
- */
-function toSpeakable(text, maxWords = MAX_WORDS) {
-  let clean = text
+/** Cleans text for speech (no length limit). */
+function toSpeakable(text) {
+  return text
     .replace(/https?:\/\/\S+/g, '')
     .replace(/\((?:credit|source|photo|image)s?:[^)]*\)/gi, '')
     .replace(/[*_`#>~]/g, '')
     .replace(/^[-\s]+/, '')
     .replace(/\s+/g, ' ')
     .trim();
-
-  const words = clean.split(' ');
-  if (words.length <= maxWords) return clean;
-
-  clean = words.slice(0, maxWords).join(' ');
-  const lastEnd = Math.max(clean.lastIndexOf('. '), clean.lastIndexOf('! '), clean.lastIndexOf('? '));
-  if (lastEnd > clean.length * 0.4) return clean.slice(0, lastEnd + 1);
-  return `${clean.replace(/[,;:\s]+$/, '')}.`;
 }
 
 /** Maps an SDK error to a short message that is safe to show or speak (never includes the key). */
@@ -168,4 +154,4 @@ async function askBrief(question) {
   return answer;
 }
 
-module.exports = { askBrief, extractAnswer, toSpeakable, MAX_WORDS };
+module.exports = { askBrief, extractAnswer, toSpeakable };
