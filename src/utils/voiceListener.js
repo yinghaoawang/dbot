@@ -3,6 +3,7 @@ const prism = require('prism-media');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pipeline } = require('node:stream');
 const { pcmToWav } = require('./wav');
 const { transcribeWav } = require('./transcriber');
 const { runVoiceCommand } = require('./voiceCommands');
@@ -100,12 +101,17 @@ async function handleUtterance(guildId, state, userId) {
   const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
   const chunks = [];
 
+  // pipeline (unlike .pipe) forwards errors and destroys the decoder when the
+  // receive stream fails. Without an error handler, a DAVE decryption failure
+  // ("DecryptionFailed") from @discordjs/voice would crash the whole process.
+  pipeline(opusStream, decoder, () => {});
+
   try {
-    for await (const chunk of opusStream.pipe(decoder)) {
+    for await (const chunk of decoder) {
       chunks.push(chunk);
     }
   } catch (err) {
-    console.error(`Voice capture error for user ${userId} in guild ${guildId}:`, err);
+    console.error(`[voice:${guildId}] Audio capture from ${userId} failed, skipping clip: ${err?.message ?? err}`);
     return;
   }
 
