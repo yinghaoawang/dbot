@@ -108,6 +108,7 @@ function describeError(err) {
   switch (err?.status) {
     case 400: return `The AI model rejected the request (is LLM_MODEL a valid catalog slug?). ${err.message}`.slice(0, 200);
     case 401: return 'The AI model rejected the API key. Check PERPLEXITY_API_KEY.';
+    case 403: return 'The Orchestrator API needs paid credits on this Perplexity account.';
     case 402: return 'That model is not available on this Perplexity usage tier.';
     case 429: return 'The AI model is busy right now. Try again in a moment.';
     default: return `The AI model returned an error (${err?.status ?? 'unknown'}).`;
