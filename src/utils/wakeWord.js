@@ -4,7 +4,7 @@
  * Instead of listing every way Whisper might mis-transcribe the wake phrase,
  * both the phrase and the transcript are reduced to a rough phonetic key
  * (similar-sounding consonants merged, vowels collapsed) and compared with
- * edit distance. "hey diddy", "a ditty", "hey dd" and "hey d d" all reduce to
+ * edit distance. "hey diddy bot", "a ditty bot", "hey dd bot" and "hey d d bot" all reduce to
  * the same or nearly the same key.
  */
 

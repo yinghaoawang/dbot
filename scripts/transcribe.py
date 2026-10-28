@@ -72,7 +72,9 @@ def transcribe(model, wav_path):
         audio,
         beam_size=1,
         language="en",
-        initial_prompt=f"{WAKE_WORD}, play some music. {WAKE_WORD}, skip. {WAKE_WORD}, pause.",
+        # Only the wake phrase: example commands in the prompt ("...skip. ...pause.")
+        # get echoed back on non-speech noise as phantom commands.
+        initial_prompt=f"{WAKE_WORD}.",
         hotwords=WAKE_WORD,
         condition_on_previous_text=False,
     )

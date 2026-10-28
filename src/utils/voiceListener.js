@@ -16,7 +16,7 @@ const SILENCE_DURATION_MS = 1_250;
 const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
 // Whisper invents short common phrases ("pause", "thank you") on near-silence, often
 // with deceptively good scores. Require the clip carrying the wake word to clear
-// these bars, otherwise a hallucination can trigger "hey diddy ..." out of nowhere.
+// these bars, otherwise a hallucination can trigger "hey diddy bot ..." out of nowhere.
 const WAKE_MAX_NO_SPEECH_PROB = 0.4;
 const WAKE_MIN_AVG_LOGPROB = -0.8;
 // Minimum gap between attempts to repair the end-to-end encryption session.
@@ -42,7 +42,7 @@ function recoverEncryption(guildId, state, err) {
 
 /**
  * Strips punctuation (keeping word characters and spaces) and collapses
- * whitespace, so transcripts like "Hey, Diddy. Play last night." can be
+ * whitespace, so transcripts like "Hey, Diddy Bot. Play last night." can be
  * reliably matched regardless of how Whisper punctuates them.
  */
 function normalizeTranscript(text) {

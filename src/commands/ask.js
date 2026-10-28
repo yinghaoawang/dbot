@@ -51,7 +51,7 @@ module.exports = {
     examples: ['I have a question: what is the tallest mountain'],
     async run({ guildId, match }) {
       const question = match[1];
-      if (!question) return '❓ Say it in one go: "hey diddy, I have a question: ..."';
+      if (!question) return '❓ Say it in one go: "hey diddy bot, I have a question: ..."';
       try {
         return formatReply(prettifySpokenQuestion(question), await answerAndSpeak(guildId, question));
       } catch (err) {
