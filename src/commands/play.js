@@ -63,7 +63,8 @@ module.exports = {
     }
 
     if (started) {
-      await interaction.editReply(`🎶 Loading: **${song.title}**`);
+      // The "Now playing" message in #diddy announces it; no "Loading" message.
+      await interaction.deleteReply().catch(() => {});
     } else {
       const queue = getQueue(interaction.guildId);
       await interaction.editReply(`✅ Added to queue: **${song.title}** (position ${queue.songs.length})`);
@@ -83,7 +84,7 @@ module.exports = {
       }
       const song = { title: songInfo.title, url: songInfo.url, requestedBy: 'voice command' };
       const { started } = await enqueueSong(state.guild, state.voiceChannel, state.textChannel, song);
-      return started ? `🎶 Loading: **${song.title}**` : `✅ Added to queue: **${song.title}**`;
+      return started ? undefined : `✅ Added to queue: **${song.title}**`;
     },
   },
 };
