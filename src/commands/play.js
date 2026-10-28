@@ -84,7 +84,7 @@ module.exports = {
       }
       const song = { title: songInfo.title, url: songInfo.url, requestedBy: 'voice command' };
       const { started } = await enqueueSong(state.guild, state.voiceChannel, state.textChannel, song);
-      return started ? undefined : `✅ Added to queue: **${song.title}**`;
+      return started ? undefined : `✅ Added to queue: **${song.title}**\n🎤 Heard: "${query}"`;
     },
   },
 };

@@ -11,7 +11,7 @@ const { findWakeWord } = require('./wakeWord');
 const { logTranscript } = require('./transcriptLog');
 
 const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
-const SILENCE_DURATION_MS = 1_000;
+const SILENCE_DURATION_MS = 2_000;
 // Minimum bytes of PCM (48kHz, 16-bit, stereo) to bother transcribing (~0.3s)
 const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
 // Minimum gap between attempts to repair the end-to-end encryption session.

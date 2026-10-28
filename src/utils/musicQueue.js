@@ -241,6 +241,14 @@ async function ensureQueue(guild, voiceChannel, textChannel) {
     selfDeaf: true,
   });
 
+  // A VoiceConnection emits 'error' on transient networking failures (e.g. a DNS
+  // lookup of Discord's voice server failing). Without a listener Node throws on
+  // the unhandled 'error' event and the whole process crashes. Log it and let the
+  // connection's own Disconnected/reconnect handling take over.
+  connection.on('error', (error) => {
+    console.error(`[voice:${guild.id}] Voice connection error:`, error.message);
+  });
+
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
   } catch (err) {
