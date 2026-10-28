@@ -280,10 +280,28 @@ async function speak(guildId, text) {
 
   const pcm = await tts.decodeToBuffer(await tts.synthesize(text), 3); // boost volume by 3x
 
+  // Playback should take about the clip length; if it never finishes (stalled
+  // connection/player) give up rather than hang whatever is waiting on us.
+  const seconds = pcm.length / (48_000 * 4);
+  const maxWaitMs = (seconds + 5) * 1000;
+  const withTimeout = (promise, onTimeout) => {
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        console.warn(`[tts:${guildId}] Playback didn't finish after ${(maxWaitMs / 1000).toFixed(0)}s; giving up.`);
+        onTimeout();
+        resolve();
+      }, maxWaitMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  };
+  console.log(`[tts:${guildId}] Speaking ${seconds.toFixed(1)}s of audio`);
+
   // Re-check after the awaits: the song/queue may have changed meanwhile.
   if (getQueue(guildId) !== queue) return;
   if (queue.mixer && queue.player.state.status === AudioPlayerStatus.Playing) {
-    await queue.mixer.playOverlay(pcm);
+    const mixer = queue.mixer;
+    await withTimeout(mixer.playOverlay(pcm), () => mixer.finishOverlay());
     return;
   }
 
@@ -303,7 +321,7 @@ async function speak(guildId, text) {
   announcer.play(createAudioResource(Readable.from([pcm]), { inputType: StreamType.Raw }));
 
   try {
-    await finished;
+    await withTimeout(finished, () => announcer.stop(true));
   } finally {
     // The queue may have been destroyed (e.g. "stop") while speaking.
     if (getQueue(guildId) === queue) queue.connection.subscribe(queue.player);

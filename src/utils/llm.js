@@ -1,10 +1,18 @@
-// Answers a question for speech using only the Perplexity Search API (Fast Search,
-// $1 per 1,000 requests) through the official SDK. There is no language model: the
-// result snippets are cleaned, split into sentences, and the sentence that best
-// matches the question is spoken. Configure with env:
+// Answers a question for speech with the Perplexity Agent API (the successor to
+// Sonar, whose chat completions endpoint now returns 403) at the lowest effort
+// level, with a short answer enforced by a system prompt and a token cap. If that
+// call fails (e.g. no credits) it falls back to the Search API (Fast Search,
+// $1 per 1,000 requests): result snippets are cleaned and the best match is
+// spoken. Configure with env:
 //   PERPLEXITY_API_KEY  (required) key from https://console.perplexity.ai
 
-const SEARCH_TIMEOUT_MS = 8_000;
+const AGENT_EFFORT = 'fast';
+const AGENT_MAX_OUTPUT_TOKENS = 500;
+const AGENT_INSTRUCTIONS =
+  'Answer in 1-3 sentences. No bullet lists, headings, markdown, or citation markers. ' +
+  'The answer will be read aloud, so write plain conversational sentences.';
+
+const SEARCH_TIMEOUT_MS = 15_000;
 const SEARCH_MAX_RESULTS = 5;
 const SEARCH_TOKENS_PER_PAGE = 300;
 const SEARCH_MAX_TOKENS = 1200;
@@ -66,15 +74,16 @@ function sentencesOf(snippet) {
 }
 
 /**
- * Picks the sentence from `results` ([{ title, snippet }, ...] in rank order)
- * that best answers `question`. Returns '' if nothing matches well enough.
+ * Finds the sentence in `results` ([{ title, snippet }, ...] in rank order) that
+ * best matches `question` and returns the whole snippet containing it.
+ * Returns '' if nothing matches well enough.
  */
 function extractAnswer(question, results) {
   const keywords = keywordsOf(question);
   if (keywords.length === 0) return '';
   const wantsNumber = WANTS_NUMBER.test(question);
 
-  let best = { score: 0, sentence: '' };
+  let best = { score: 0, sentence: '', result: null };
   results.forEach((result, rank) => {
     if (!result?.snippet) return;
     for (const sentence of sentencesOf(result.snippet)) {
@@ -85,17 +94,37 @@ function extractAnswer(question, results) {
 
       let score = coverage * 3 - rank * 0.15;
       if (wantsNumber && /\d/.test(sentence)) score += 1;
-      if (!/[.!?]$/.test(sentence)) score -= 0.5;
-      if (score > best.score) best = { score, sentence };
+      if (score > best.score) best = { score, sentence, result };
     }
   });
-  return best.sentence;
+  return best.result ? snippetText(best.result.snippet) : '';
+}
+
+/** The whole snippet as plain text: markdown stripped, list items and headings kept as separate sentences. */
+function snippetText(snippet) {
+  const lines = [];
+  for (const rawLine of snippet.split('\n')) {
+    const trimmed = rawLine.trim();
+    // Headings and list items are standalone; other lines may just be wrapped mid-sentence.
+    const standalone = /^(?:#|[-*+]\s|\d+[.)]\s)/.test(trimmed);
+    const line = trimmed
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/^#+\s*/, '')
+      .replace(/^(?:[-*+]|\d+[.)])\s+/, '')
+      .replace(/[*_`~>]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!line || line.startsWith('|') || /^\.{3}$/.test(line) || JUNK.test(line)) continue;
+    lines.push(standalone && !/[.!?:]$/.test(line) ? `${line}.` : line);
+  }
+  return lines.join(' ');
 }
 
 /** Cleans text for speech (no length limit). */
 function toSpeakable(text) {
   return text
     .replace(/https?:\/\/\S+/g, '')
+    .replace(/\[\d+\]/g, '')
     .replace(/\((?:credit|source|photo|image)s?:[^)]*\)/gi, '')
     .replace(/[*_`#>~]/g, '')
     .replace(/^[-\s]+/, '')
@@ -142,12 +171,37 @@ async function searchWeb(question) {
   }
 }
 
+/** Asks the Agent API. Returns the answer text, cut back to a complete sentence if the token cap truncated it. */
+async function askAgent(question) {
+  const client = await getClient();
+  const response = await client.responses.create({
+    effort: AGENT_EFFORT,
+    instructions: AGENT_INSTRUCTIONS,
+    max_output_tokens: AGENT_MAX_OUTPUT_TOKENS,
+    input: question,
+  });
+  let text = toSpeakable(response?.output_text ?? '');
+  if (text && !/[.!?]["')\u2019\u201d]*$/.test(text)) {
+    const lastEnd = Math.max(text.lastIndexOf('. '), text.lastIndexOf('! '), text.lastIndexOf('? '));
+    if (lastEnd > 0) text = text.slice(0, lastEnd + 1);
+  }
+  return text;
+}
+
 /** Returns a short, speakable answer to `question`. Throws an Error with a user-friendly message. */
 async function askBrief(question) {
   if (!process.env.PERPLEXITY_API_KEY) {
     throw new Error('Web search is not configured. Set PERPLEXITY_API_KEY in .env.');
   }
   const trimmed = question.slice(0, MAX_QUESTION_CHARS);
+
+  try {
+    const answer = await askAgent(trimmed);
+    if (answer) return answer;
+  } catch (err) {
+    console.warn(`[ask] Agent API failed (${err?.status ?? err?.name}), falling back to search: ${err?.message?.slice(0, 120)}`);
+  }
+
   const results = await searchWeb(trimmed);
   const answer = toSpeakable(extractAnswer(trimmed, results));
   if (!answer) throw new Error("I couldn't find a clear answer to that.");

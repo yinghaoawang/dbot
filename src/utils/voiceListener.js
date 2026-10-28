@@ -14,6 +14,26 @@ const AWAITING_COMMAND_TIMEOUT_MS = 10_000;
 const SILENCE_DURATION_MS = 1_000;
 // Minimum bytes of PCM (48kHz, 16-bit, stereo) to bother transcribing (~0.3s)
 const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
+// Minimum gap between attempts to repair the end-to-end encryption session.
+const DAVE_RECOVERY_COOLDOWN_MS = 10_000;
+
+/**
+ * After a DAVE decrypt failure, @discordjs/voice keeps throwing on every packet
+ * from that user and (when no transition has happened yet) never recovers on its
+ * own, so nobody is heard until the bot restarts. Ask Discord to redo the key
+ * exchange using the library's own recovery routine.
+ */
+function recoverEncryption(guildId, state, err) {
+  if (!/decrypt/i.test(err?.message ?? '')) return;
+  const now = Date.now();
+  if (now - (state.lastDaveRecovery ?? 0) < DAVE_RECOVERY_COOLDOWN_MS) return;
+  state.lastDaveRecovery = now;
+
+  const dave = state.connection.state?.networking?.state?.dave;
+  if (typeof dave?.recoverFromInvalidTransition !== 'function') return;
+  console.warn(`[voice:${guildId}] Voice decryption failed, asking Discord to re-establish encryption...`);
+  dave.recoverFromInvalidTransition(dave.lastTransitionId ?? 0);
+}
 
 /**
  * Strips punctuation (keeping word characters and spaces) and collapses
@@ -104,7 +124,9 @@ async function handleUtterance(guildId, state, userId) {
   // pipeline (unlike .pipe) forwards errors and destroys the decoder when the
   // receive stream fails. Without an error handler, a DAVE decryption failure
   // ("DecryptionFailed") from @discordjs/voice would crash the whole process.
-  pipeline(opusStream, decoder, () => {});
+  pipeline(opusStream, decoder, (err) => {
+    if (err) recoverEncryption(guildId, state, err);
+  });
 
   try {
     for await (const chunk of decoder) {
@@ -159,7 +181,7 @@ async function handleUtterance(guildId, state, userId) {
   if (state.awaitingCommand) {
     if (state.awaitingTimeout) clearTimeout(state.awaitingTimeout);
     state.awaitingCommand = false;
-    await processCommand(guildId, state, normalized, confidence);
+    runCommand(guildId, state, normalized, confidence);
     return;
   }
 
@@ -168,7 +190,7 @@ async function handleUtterance(guildId, state, userId) {
 
   const after = wakeMatch.after;
   if (after.length > 0) {
-    await processCommand(guildId, state, after, confidence);
+    runCommand(guildId, state, after, confidence);
   } else {
     state.awaitingCommand = true;
     state.textChannel?.send('🎤 Listening... what should I do?').catch(() => {});
@@ -176,6 +198,17 @@ async function handleUtterance(guildId, state, userId) {
       state.awaitingCommand = false;
     }, AWAITING_COMMAND_TIMEOUT_MS);
   }
+}
+
+/**
+ * Runs a command without awaiting it. The user stays "busy" (ignored) only while
+ * their audio is captured and transcribed, so a slow or stuck command (a long
+ * spoken answer, a stalled playback) can never stop the bot from hearing them.
+ */
+function runCommand(guildId, state, text, confidence) {
+  processCommand(guildId, state, text, confidence).catch((err) => {
+    console.error(`[voice:${guildId}] Command "${text}" failed:`, err);
+  });
 }
 
 async function processCommand(guildId, state, text, confidence) {
