@@ -1,11 +1,10 @@
 // Answers a question for speech using only the Perplexity Search API (Fast Search,
-// $1 per 1,000 requests). There is no language model: the result snippets are
-// cleaned, split into sentences, and the sentence that best matches the question
-// is spoken. Configure with env:
+// $1 per 1,000 requests) through the official SDK. There is no language model: the
+// result snippets are cleaned, split into sentences, and the sentence that best
+// matches the question is spoken. Configure with env:
 //   PERPLEXITY_API_KEY  (required) key from https://console.perplexity.ai
 //   LLM_MAX_WORDS       default 34 (about 11 seconds with the en_US-joe-medium voice)
 
-const SEARCH_URL = 'https://api.perplexity.ai/search';
 const SEARCH_TIMEOUT_MS = 8_000;
 const SEARCH_MAX_RESULTS = 5;
 const SEARCH_TOKENS_PER_PAGE = 300;
@@ -118,41 +117,43 @@ function toSpeakable(text, maxWords = MAX_WORDS) {
   return `${clean.replace(/[,;:\s]+$/, '')}.`;
 }
 
-/** Maps an HTTP status to a short message that is safe to show or speak (never includes the key). */
-function describeStatus(status) {
-  switch (status) {
+/** Maps an SDK error to a short message that is safe to show or speak (never includes the key). */
+function describeError(err) {
+  switch (err?.status) {
     case 401:
     case 403: return 'Perplexity rejected the API key. Check PERPLEXITY_API_KEY.';
     case 429: return 'Web search is busy right now. Try again in a moment.';
-    default: return `Web search returned an error (${status}).`;
+    case undefined: return `Couldn't reach web search (${/timeout|timed out/i.test(err?.name + err?.message) ? 'timed out' : 'network error'}).`;
+    default: return `Web search returned an error (${err.status}).`;
   }
+}
+
+// The SDK is ESM-only, so it is loaded with import() from this CommonJS module.
+let clientPromise;
+function getClient() {
+  clientPromise ??= import('@perplexity-ai/perplexity_ai').then(
+    ({ default: Perplexity }) =>
+      // The SDK retries 429/5xx once, honoring Retry-After.
+      new Perplexity({ apiKey: process.env.PERPLEXITY_API_KEY, timeout: SEARCH_TIMEOUT_MS, maxRetries: 1 })
+  );
+  return clientPromise;
 }
 
 /** Runs a Fast Search and returns the result list. Throws an Error with a user-friendly message. */
 async function searchWeb(question) {
-  let response;
   try {
-    response = await fetch(SEARCH_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query: question,
-        search_type: 'fast',
-        max_results: SEARCH_MAX_RESULTS,
-        max_tokens: SEARCH_MAX_TOKENS,
-        max_tokens_per_page: SEARCH_TOKENS_PER_PAGE,
-      }),
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+    const client = await getClient();
+    const search = await client.search.create({
+      query: question,
+      search_type: 'fast',
+      max_results: SEARCH_MAX_RESULTS,
+      max_tokens: SEARCH_MAX_TOKENS,
+      max_tokens_per_page: SEARCH_TOKENS_PER_PAGE,
     });
+    return search?.results ?? [];
   } catch (err) {
-    throw new Error(`Couldn't reach web search (${err.name === 'TimeoutError' ? 'timed out' : 'network error'}).`);
+    throw new Error(describeError(err));
   }
-  if (!response.ok) throw new Error(describeStatus(response.status));
-  const data = await response.json();
-  return data?.results ?? [];
 }
 
 /** Returns a short, speakable answer to `question`. Throws an Error with a user-friendly message. */
