@@ -19,6 +19,9 @@ const MIN_PCM_BYTES = 48_000 * 2 * 2 * 0.3;
 // these bars, otherwise a hallucination can trigger "hey diddy bot ..." out of nowhere.
 const WAKE_MAX_NO_SPEECH_PROB = 0.4;
 const WAKE_MIN_AVG_LOGPROB = -0.8;
+// Clips Whisper thinks contain no speech are dropped entirely (not logged, not
+// checked for commands). Real speech scores ~0.01-0.1; noise hallucinations ~0.9.
+const DISCARD_NO_SPEECH_PROB = 0.6;
 // Minimum gap between attempts to repair the end-to-end encryption session.
 const DAVE_RECOVERY_COOLDOWN_MS = 10_000;
 
@@ -172,6 +175,14 @@ async function handleUtterance(guildId, state, userId) {
   }
 
   const stats = (n) => (n == null ? '?' : n.toFixed(2));
+  if (confidence.noSpeechProb != null && confidence.noSpeechProb > DISCARD_NO_SPEECH_PROB) {
+    console.log(
+      `[voice:${guildId}] Discarding ${userId} clip, probably not speech: "${transcript}" ` +
+        `(no_speech ${stats(confidence.noSpeechProb)})`
+    );
+    return;
+  }
+
   console.log(
     `[voice:${guildId}] ${userId} heard: "${transcript}" ` +
       `(no_speech ${stats(confidence.noSpeechProb)}, logprob ${stats(confidence.avgLogprob)})`

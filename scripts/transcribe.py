@@ -77,6 +77,9 @@ def transcribe(model, wav_path):
         initial_prompt=f"{WAKE_WORD}.",
         hotwords=WAKE_WORD,
         condition_on_previous_text=False,
+        # Drop non-speech audio (hum, hiss, mic noise) before Whisper sees it;
+        # otherwise the wake-phrase prompt gets echoed back as "Diddy Bot." on noise.
+        vad_filter=True,
     )
     segments = list(segments)
     return {
